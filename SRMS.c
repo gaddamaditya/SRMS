@@ -3,331 +3,541 @@
 #include <string.h>
 
 #define STUD_FILE "students.dat"
-#define REQ_FILE  "requests.dat"
+#define CSV_FILE  "students.csv"
+#define MAX_STUDENTS 2000
+#define MAX_SUBJECTS 3   /* C++, DAA, Coding Skills */
 
-// ======================= STRUCTURES ==========================
+/* ======================== STRUCTS ======================== */
+
 typedef struct {
-    char id[20], name[50], branch[20], section[10], phone[15], password[20];
+    char id[20];
+    char name[50];
+    char branch[20];
+    char section[10];
     float cgpa;
+    char phone[15];
+    char password[20];
+
+    /* Attendance & Marks */
+    float attendance;               
+    float marks[MAX_SUBJECTS];      
+    float percent;                  
+    char  grade[3];                 
 } Student;
 
-typedef struct {
-    int  requestId;
-    char type[10], staffId[20], studentId[20];
-} Request;
+/* ===================== INPUT HELPERS ===================== */
 
-// ======================= UTILITY ==============================
-void clearInput() { int c; while ((c=getchar())!='\n' && c!=EOF); }
-
-// ======================= LOGIN ================================
-int adminLogin() {
-    char u[20], p[20];
-    printf("\n--- ADMIN LOGIN ---\nUsername: "); scanf("%19s", u);
-    printf("Password: "); scanf("%19s", p);
-    return (!strcmp(u,"admin") && !strcmp(p,"admin123"));
+void readLine(char *buf, size_t size) {
+    if (fgets(buf, (int)size, stdin)) {
+        buf[strcspn(buf, "\n")] = '\0';
+    } else if (size > 0) buf[0] = '\0';
 }
 
-int staffLogin(char staffId[]) {
-    char u[20], p[20];
-    printf("\n--- STAFF LOGIN ---\nStaff ID: "); scanf("%19s", u);
-    printf("Password: "); scanf("%19s", p);
-    if (!strcmp(u,"staff") && !strcmp(p,"staff123")) { strcpy(staffId,u); return 1; }
+int readInt() {
+    char line[64];
+    int x;
+    while (1) {
+        fgets(line, sizeof(line), stdin);
+        if (sscanf(line, "%d", &x) == 1) return x;
+        printf("Enter valid number: ");
+    }
+}
+
+float readFloat() {
+    char line[64];
+    float x;
+    while (1) {
+        fgets(line, sizeof(line), stdin);
+        if (sscanf(line, "%f", &x) == 1) return x;
+        printf("Enter valid float: ");
+    }
+}
+
+void pauseScreen() {
+    printf("\nPress ENTER to continue...");
+    char dummy[8];
+    readLine(dummy, sizeof(dummy));
+}
+
+/* ================== PROGRESS / GRADE ================= */
+
+void computeProgress(Student *s) {
+    float total = 0;
+    for (int i = 0; i < MAX_SUBJECTS; i++)
+        total += s->marks[i];
+
+    s->percent = total / MAX_SUBJECTS;
+
+    if      (s->percent >= 90) strcpy(s->grade, "O");
+    else if (s->percent >= 80) strcpy(s->grade, "A");
+    else if (s->percent >= 70) strcpy(s->grade, "B");
+    else if (s->percent >= 60) strcpy(s->grade, "C");
+    else if (s->percent >= 50) strcpy(s->grade, "D");
+    else strcpy(s->grade, "F");
+}
+
+/* ================== FILE HELPERS ================= */
+
+int loadAllStudents(Student arr[], int max) {
+    FILE *fp = fopen(STUD_FILE, "rb");
+    if (!fp) return 0;
+
+    int n = 0;
+    while (n < max && fread(&arr[n], sizeof(Student), 1, fp) == 1) n++;
+
+    fclose(fp);
+    return n;
+}
+
+void saveAllStudents(Student arr[], int count) {
+    FILE *fp = fopen(STUD_FILE, "wb");
+    if (!fp) return;
+    fwrite(arr, sizeof(Student), count, fp);
+    fclose(fp);
+}
+
+int getStudentById(const char *id, Student *out) {
+    FILE *fp = fopen(STUD_FILE, "rb");
+    if (!fp) return 0;
+
+    Student s;
+    while (fread(&s, sizeof(Student), 1, fp) == 1) {
+        if (strcmp(s.id, id) == 0) {
+            if (out) *out = s;
+            fclose(fp);
+            return 1;
+        }
+    }
+    fclose(fp);
     return 0;
 }
 
-int studentLogin(char studentId[]) {
-    Student s; char id[20], pass[20];
-    FILE *fp=fopen(STUD_FILE,"rb");
-    if(!fp){ printf("No student DB.\n"); return 0; }
-    printf("\n--- STUDENT LOGIN ---\nID: "); scanf("%19s",id);
-    printf("Password: "); scanf("%19s",pass);
-    while(fread(&s,sizeof(Student),1,fp))
-        if(!strcmp(s.id,id)&&!strcmp(s.password,pass)){ fclose(fp); strcpy(studentId,id); return 1;}
-    fclose(fp); return 0;
-}
+/* ====================== CSV EXPORT ======================= */
 
-// ======================= ADMIN CRUD ===========================
-void addStudent() {
-    Student s; FILE *fp=fopen(STUD_FILE,"ab");
-    if(!fp){printf("File error.\n");return;}
-    printf("\n--- ADD STUDENT ---\nID: "); scanf("%19s", s.id);
-    clearInput(); printf("Name: "); fgets(s.name,50,stdin); s.name[strcspn(s.name,"\n")]=0;
-    printf("Branch: "); fgets(s.branch,20,stdin); s.branch[strcspn(s.branch,"\n")]=0;
-    printf("Section: "); fgets(s.section,10,stdin); s.section[strcspn(s.section,"\n")]=0;
-    printf("CGPA: "); scanf("%f",&s.cgpa); clearInput();
-    printf("Phone: "); fgets(s.phone,15,stdin); s.phone[strcspn(s.phone,"\n")]=0;
-    sprintf(s.password,"%s@pass",s.id);
-    fwrite(&s,sizeof(Student),1,fp); fclose(fp);
-    printf("Student added. Default password = %s\n",s.password);
-}
+void autoExportCSV() {
+    Student arr[MAX_STUDENTS];
+    int n = loadAllStudents(arr, MAX_STUDENTS);
+    if (n == 0) return;
 
-void viewStudents() {
-    Student s; FILE *fp=fopen(STUD_FILE,"rb");
-    if(!fp){ printf("No records.\n"); return; }
-    printf("\n--- STUDENTS ---\n");
-    while(fread(&s,sizeof(Student),1,fp)){
-        printf("\nID:%s\nName:%s\nBranch:%s\nSec:%s\nCGPA:%.2f\nPhone:%s\n",
-               s.id,s.name,s.branch,s.section,s.cgpa,s.phone);
+    FILE *fp = fopen(CSV_FILE, "w");
+    if (!fp) return;
+
+    fprintf(fp, "ID,Name,Branch,Section,CGPA,Phone,Attendance,C++,DAA,Coding Skills,Percent,Grade\n");
+
+    for (int i = 0; i < n; i++) {
+        fprintf(fp, "%s,%s,%s,%s,%.2f,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
+            arr[i].id, arr[i].name, arr[i].branch, arr[i].section, arr[i].cgpa,
+            arr[i].phone, arr[i].attendance,
+            arr[i].marks[0], arr[i].marks[1], arr[i].marks[2],
+            arr[i].percent, arr[i].grade
+        );
     }
     fclose(fp);
 }
 
-void searchStudent() {
-    char id[20]; Student s; int f=0;
-    printf("Enter ID: "); scanf("%19s",id);
-    FILE *fp=fopen(STUD_FILE,"rb");
-    if(!fp){ printf("No records.\n"); return; }
-    while(fread(&s,sizeof(Student),1,fp)){
-        if(!strcmp(s.id,id)){
-            printf("\nID:%s\nName:%s\nBranch:%s\nSec:%s\nCGPA:%.2f\nPhone:%s\n",
-                   s.id,s.name,s.branch,s.section,s.cgpa,s.phone);
-            f=1; break;
-        }
+/* =================== ADMIN CRUD =================== */
+
+void adminAddStudent() {
+    Student s;
+    memset(&s, 0, sizeof(Student));
+
+    FILE *fp = fopen(STUD_FILE, "ab");
+    if (!fp) {
+        printf("File error.\n");
+        pauseScreen();
+        return;
     }
+
+    printf("\n----- ADD STUDENT -----\n");
+
+    printf("ID: ");
+    readLine(s.id, sizeof(s.id));
+
+    Student tmp;
+    if (getStudentById(s.id, &tmp)) {
+        printf("ID already exists.\n");
+        fclose(fp);
+        pauseScreen();
+        return;
+    }
+
+    printf("Name   : "); readLine(s.name, sizeof(s.name));
+    printf("Branch : "); readLine(s.branch, sizeof(s.branch));
+    printf("Section: "); readLine(s.section, sizeof(s.section));
+    printf("CGPA   : "); s.cgpa = readFloat();
+    printf("Phone  : "); readLine(s.phone, sizeof(s.phone));
+
+    s.attendance = 0;
+    for (int i = 0; i < MAX_SUBJECTS; i++) s.marks[i] = 0;
+    computeProgress(&s);
+
+    snprintf(s.password, sizeof(s.password), "%s@pass", s.id);
+
+    fwrite(&s, sizeof(Student), 1, fp);
     fclose(fp);
-    if(!f) printf("Not found.\n");
+
+    printf("Student added. Default password: %s\n", s.password);
+
+    autoExportCSV();
+    pauseScreen();
 }
 
-void updateStudent() {
-    char id[20]; Student s; int found=0;
-    printf("Enter ID: "); scanf("%19s",id);
-    FILE *fp=fopen(STUD_FILE,"rb+");
-    if(!fp){ printf("No records.\n"); return; }
-    while(fread(&s,sizeof(Student),1,fp)){
-        if(!strcmp(s.id,id)){
-            found=1; clearInput();
-            printf("New Name: "); fgets(s.name,50,stdin); s.name[strcspn(s.name,"\n")] = 0;
-            printf("New Branch: "); fgets(s.branch,20,stdin); s.branch[strcspn(s.branch,"\n")] = 0;
-            printf("New Section: "); fgets(s.section,10,stdin); s.section[strcspn(s.section,"\n")] = 0;
-            printf("New CGPA: "); scanf("%f",&s.cgpa); clearInput();
-            printf("New Phone: "); fgets(s.phone,15,stdin); s.phone[strcspn(s.phone,"\n")] = 0;
-            fseek(fp,-sizeof(Student),SEEK_CUR); fwrite(&s,sizeof(Student),1,fp);
-            printf("Updated.\n"); fclose(fp); return;
-        }
+/* View all */
+void adminViewAllStudents() {
+    FILE *fp = fopen(STUD_FILE, "rb");
+    if (!fp) {
+        printf("No data.\n");
+        pauseScreen();
+        return;
     }
+
+    Student s;
+    printf("\n----- ALL STUDENTS -----\n");
+
+    while (fread(&s, sizeof(Student), 1, fp) == 1) {
+        printf("\nID: %s\nName: %s\nBranch: %s\nSection: %s\nCGPA: %.2f\nPhone: %s\n",
+               s.id, s.name, s.branch, s.section, s.cgpa, s.phone);
+
+        printf("Attendance: %.2f %%\n", s.attendance);
+        printf("Marks: C++ %.1f | DAA %.1f | Coding %.1f\n",
+               s.marks[0], s.marks[1], s.marks[2]);
+        printf("Percent: %.2f | Grade: %s\n", s.percent, s.grade);
+    }
+
     fclose(fp);
-    printf("Not found.\n");
+    pauseScreen();
 }
 
-void deleteStudent() {
-    char id[20]; Student s; int found=0;
-    printf("Enter ID to delete: "); scanf("%19s",id);
-    FILE *fp=fopen(STUD_FILE,"rb"), *tmp=fopen("tmp.dat","wb");
-    if(!fp||!tmp){ printf("File error.\n"); if(fp)fclose(fp); return; }
-    while(fread(&s,sizeof(Student),1,fp)){
-        if(!strcmp(s.id,id)) found=1;
-        else fwrite(&s,sizeof(Student),1,tmp);
+/* Update */
+void adminUpdateStudent() {
+    char id[20];
+    printf("\nEnter student ID to update: ");
+    readLine(id, sizeof(id));
+
+    FILE *fp = fopen(STUD_FILE, "rb+");
+    if (!fp) {
+        printf("No data.\n");
+        pauseScreen();
+        return;
     }
-    fclose(fp); fclose(tmp);
-    remove(STUD_FILE); rename("tmp.dat",STUD_FILE);
-    printf(found?"Deleted.\n":"ID not found.\n");
-}
 
-// ====================== STUDENT VIEW ==========================
-void viewMyDetails(char sid[]) {
-    Student s; FILE *fp=fopen(STUD_FILE,"rb");
-    if(!fp){ printf("No records.\n"); return; }
-    while(fread(&s,sizeof(Student),1,fp)){
-        if(!strcmp(s.id,sid)){
-            printf("\nID:%s\nName:%s\nBranch:%s\nSec:%s\nCGPA:%.2f\nPhone:%s\n",
-                   s.id,s.name,s.branch,s.section,s.cgpa,s.phone);
-            fclose(fp); return;
+    Student s;
+    int found = 0;
+
+    while (fread(&s, sizeof(Student), 1, fp) == 1) {
+        if (strcmp(s.id, id) == 0) {
+            found = 1;
+
+            printf("New Name   : "); readLine(s.name, sizeof(s.name));
+            printf("New Branch : "); readLine(s.branch, sizeof(s.branch));
+            printf("New Section: "); readLine(s.section, sizeof(s.section));
+            printf("New CGPA   : "); s.cgpa = readFloat();
+            printf("New Phone  : "); readLine(s.phone, sizeof(s.phone));
+
+            computeProgress(&s);
+
+            fseek(fp, -sizeof(Student), SEEK_CUR);
+            fwrite(&s, sizeof(Student), 1, fp);
+            break;
         }
     }
-    fclose(fp); printf("Record not found.\n");
-}
 
-// ======================= REQUEST SYSTEM =======================
-int nextRequestId() {
-    Request r; int max=0; FILE *fp=fopen(REQ_FILE,"rb");
-    if(!fp) return 1;
-    while(fread(&r,sizeof(Request),1,fp)) if(r.requestId>max) max=r.requestId;
-    fclose(fp); return max+1;
-}
-
-void requestAdd(char sid[]) {
-    Request r; FILE *fp=fopen(REQ_FILE,"ab"); if(!fp){printf("Err.\n");return;}
-    r.requestId=nextRequestId(); strcpy(r.type,"ADD"); strcpy(r.staffId,sid);
-    printf("Enter Student ID: "); scanf("%19s",r.studentId);
-    fwrite(&r,sizeof(Request),1,fp); fclose(fp);
-    printf("Request submitted (%d)\n",r.requestId);
-}
-
-void requestUpdate(char sid[]) {
-    Request r; FILE *fp=fopen(REQ_FILE,"ab"); if(!fp){printf("Err.\n");return;}
-    r.requestId=nextRequestId(); strcpy(r.type,"UPDATE"); strcpy(r.staffId,sid);
-    printf("Enter Student ID: "); scanf("%19s",r.studentId);
-    fwrite(&r,sizeof(Request),1,fp); fclose(fp);
-    printf("Request submitted (%d)\n",r.requestId);
-}
-
-void requestDelete(char sid[]) {
-    Request r; FILE *fp=fopen(REQ_FILE,"ab"); if(!fp){printf("Err.\n");return;}
-    r.requestId=nextRequestId(); strcpy(r.type,"DELETE"); strcpy(r.staffId,sid);
-    printf("Enter Student ID: "); scanf("%19s",r.studentId);
-    fwrite(&r,sizeof(Request),1,fp); fclose(fp);
-    printf("Request submitted (%d)\n",r.requestId);
-}
-
-void viewRequests() {
-    Request r; FILE *fp=fopen(REQ_FILE,"rb");
-    if(!fp){ printf("No requests.\n"); return; }
-    printf("\n--- REQUESTS ---\n");
-    while(fread(&r,sizeof(Request),1,fp))
-        printf("\nID:%d\nType:%s\nStaff:%s\nStudent:%s\n",
-               r.requestId,r.type,r.staffId,r.studentId);
     fclose(fp);
+
+    printf(found ? "Updated.\n" : "ID not found.\n");
+    autoExportCSV();
+    pauseScreen();
 }
 
-// ======================= APPROVALS ============================
-void approveAdd() {
-    int id,found=0; Request r;
-    printf("Enter Request ID: "); scanf("%d",&id);
-    FILE *fp=fopen(REQ_FILE,"rb"), *tmp=fopen("rtmp.dat","wb");
-    if(!fp||!tmp){ printf("Err.\n"); return; }
-    while(fread(&r,sizeof(Request),1,fp)){
-        if(r.requestId==id&&!strcmp(r.type,"ADD")){
-            found=1;
-            Student s; strcpy(s.id,r.studentId);
-            clearInput();
-            printf("Name: "); fgets(s.name,50,stdin); s.name[strcspn(s.name,"\n")] = 0;
-            printf("Branch: "); fgets(s.branch,20,stdin); s.branch[strcspn(s.branch,"\n")] = 0;
-            printf("Section: "); fgets(s.section,10,stdin); s.section[strcspn(s.section,"\n")] = 0;
-            printf("CGPA: "); scanf("%f",&s.cgpa); clearInput();
-            printf("Phone: "); fgets(s.phone,15,stdin); s.phone[strcspn(s.phone,"\n")] = 0;
-            sprintf(s.password,"%s@pass",s.id);
-            FILE *sf=fopen(STUD_FILE,"ab"); fwrite(&s,sizeof(Student),1,sf); fclose(sf);
-            printf("Added.\n"); continue;
-        }
-        fwrite(&r,sizeof(Request),1,tmp);
+/* Delete */
+void adminDeleteStudent() {
+    char id[20];
+    printf("Enter ID to delete: ");
+    readLine(id, sizeof(id));
+
+    FILE *fp = fopen(STUD_FILE, "rb");
+    FILE *tmp = fopen("temp.dat", "wb");
+
+    if (!fp || !tmp) {
+        printf("File error.\n");
+        pauseScreen();
+        return;
     }
-    fclose(fp); fclose(tmp);
-    remove(REQ_FILE); rename("rtmp.dat",REQ_FILE);
-    if(!found) printf("Not found.\n");
+
+    Student s;
+    int found = 0;
+
+    while (fread(&s, sizeof(Student), 1, fp) == 1) {
+        if (strcmp(s.id, id) == 0)
+            found = 1;
+        else
+            fwrite(&s, sizeof(Student), 1, tmp);
+    }
+
+    fclose(fp);
+    fclose(tmp);
+
+    remove(STUD_FILE);
+    rename("temp.dat", STUD_FILE);
+
+    printf(found ? "Deleted.\n" : "ID not found.\n");
+    autoExportCSV();
+    pauseScreen();
 }
 
-void approveUpdate() {
-    int id,found=0; Request r;
-    printf("Enter Request ID: "); scanf("%d",&id);
-    FILE *fp=fopen(REQ_FILE,"rb"), *tmp=fopen("rtmp.dat","wb");
-    if(!fp||!tmp){ printf("Err.\n"); return; }
+/* =================== SEARCH =================== */
 
-    while(fread(&r,sizeof(Request),1,fp)){
-        if(r.requestId==id&&!strcmp(r.type,"UPDATE")){
-            found=1;
-            Student s; int updated=0;
-            FILE *sf=fopen(STUD_FILE,"rb"), *st=fopen("stmp.dat","wb");
-            while(fread(&s,sizeof(Student),1,sf)){
-                if(!strcmp(s.id,r.studentId)){
-                    updated=1; clearInput();
-                    printf("New Name: "); fgets(s.name,50,stdin); s.name[strcspn(s.name,"\n")] = 0;
-                    printf("New Branch: "); fgets(s.branch,20,stdin); s.branch[strcspn(s.branch,"\n")] = 0;
-                    printf("New Section: "); fgets(s.section,10,stdin); s.section[strcspn(s.section,"\n")] = 0;
-                    printf("New CGPA: "); scanf("%f",&s.cgpa); clearInput();
-                    printf("New Phone: "); fgets(s.phone,15,stdin); s.phone[strcspn(s.phone,"\n")] = 0;
-                }
-                fwrite(&s,sizeof(Student),1,st);
+void searchStudents() {
+    int ch;
+    printf("\n1. Search by ID\n2. Search by Branch & Section\nChoose: ");
+    ch = readInt();
+
+    FILE *fp = fopen(STUD_FILE, "rb");
+    if (!fp) {
+        printf("No data.\n");
+        pauseScreen();
+        return;
+    }
+
+    Student s;
+    int found = 0;
+
+    if (ch == 1) {
+        char id[20];
+        printf("ID: "); readLine(id, sizeof(id));
+
+        while (fread(&s, sizeof(Student), 1, fp) == 1) {
+            if (strcmp(s.id, id) == 0) {
+                found = 1;
+                printf("\nID: %s\nName: %s\nBranch: %s\nSection: %s\nCGPA: %.2f\n",
+                       s.id, s.name, s.branch, s.section, s.cgpa);
+
+                printf("Attendance: %.2f\n", s.attendance);
+                printf("Marks: %.1f %.1f %.1f\n",
+                       s.marks[0], s.marks[1], s.marks[2]);
+                printf("Percent: %.2f | Grade: %s\n", s.percent, s.grade);
             }
-            fclose(sf); fclose(st);
-            remove(STUD_FILE); rename("stmp.dat",STUD_FILE);
-            printf(updated?"Updated.\n":"Student not found.\n");
-            continue;
         }
-        fwrite(&r,sizeof(Request),1,tmp);
-    }
-    fclose(fp); fclose(tmp);
-    remove(REQ_FILE); rename("rtmp.dat",REQ_FILE);
-    if(!found) printf("Not found.\n");
-}
 
-void approveDelete() {
-    int id,found=0; Request r;
-    printf("Enter Request ID: "); scanf("%d",&id);
-    FILE *fp=fopen(REQ_FILE,"rb"), *tmp=fopen("rtmp.dat","wb");
-    if(!fp||!tmp){ printf("Err.\n"); return; }
+    } else if (ch == 2) {
+        char br[20], sec[10];
 
-    while(fread(&r,sizeof(Request),1,fp)){
-        if(r.requestId==id&&!strcmp(r.type,"DELETE")){
-            found=1;
-            Student s; int deleted=0;
-            FILE *sf=fopen(STUD_FILE,"rb"), *st=fopen("stmp.dat","wb");
-            while(fread(&s,sizeof(Student),1,sf)){
-                if(!strcmp(s.id,r.studentId)) deleted=1;
-                else fwrite(&s,sizeof(Student),1,st);
+        printf("Branch : "); readLine(br, sizeof(br));
+        printf("Section: "); readLine(sec, sizeof(sec));
+
+        while (fread(&s, sizeof(Student), 1, fp) == 1) {
+            if (strcmp(s.branch, br) == 0 && strcmp(s.section, sec) == 0) {
+                found = 1;
+
+                printf("\nID: %s | %s | CGPA %.2f | Attendance %.2f\n",
+                       s.id, s.name, s.cgpa, s.attendance);
+
+                printf("C++: %.1f | DAA: %.1f | Coding: %.1f\n",
+                       s.marks[0], s.marks[1], s.marks[2]);
             }
-            fclose(sf); fclose(st);
-            remove(STUD_FILE); rename("stmp.dat",STUD_FILE);
-            printf(deleted?"Deleted.\n":"Not found.\n");
-            continue;
         }
-        fwrite(&r,sizeof(Request),1,tmp);
     }
-    fclose(fp); fclose(tmp);
-    remove(REQ_FILE); rename("rtmp.dat",REQ_FILE);
-    if(!found) printf("Not found.\n");
+
+    fclose(fp);
+    if (!found) printf("No matching records.\n");
+
+    pauseScreen();
 }
 
-// ======================= MENUS ================================
+/* ========== STAFF: UPDATE ATTENDANCE + MARKS ============= */
+
+void staffUpdateAttendanceMarks() {
+    char id[20];
+    printf("\nEnter ID: ");
+    readLine(id, sizeof(id));
+
+    FILE *fp = fopen(STUD_FILE, "rb+");
+    if (!fp) {
+        printf("No data.\n");
+        pauseScreen();
+        return;
+    }
+
+    Student s;
+    int found = 0;
+
+    while (fread(&s, sizeof(Student), 1, fp) == 1) {
+        if (strcmp(s.id, id) == 0) {
+            found = 1;
+
+            printf("New Attendance (0-100): ");
+            s.attendance = readFloat();
+
+            printf("Enter marks:\n");
+            printf("C++          : "); s.marks[0] = readFloat();
+            printf("DAA          : "); s.marks[1] = readFloat();
+            printf("Coding Skills: "); s.marks[2] = readFloat();
+
+            computeProgress(&s);
+
+            fseek(fp, -sizeof(Student), SEEK_CUR);
+            fwrite(&s, sizeof(Student), 1, fp);
+            break;
+        }
+    }
+
+    fclose(fp);
+
+    printf(found ? "Updated.\n" : "ID not found.\n");
+    autoExportCSV();
+    pauseScreen();
+}
+
+/* ================= STUDENT SIDE ================= */
+
+void studentViewMyDetails(const char sid[]) {
+    Student s;
+    if (!getStudentById(sid, &s)) {
+        printf("Record not found.\n");
+    } else {
+        printf("\n----- MY DETAILS -----\n");
+        printf("ID: %s\nName: %s\nBranch: %s\nSection: %s\nCGPA: %.2f\nPhone: %s\n",
+               s.id, s.name, s.branch, s.section, s.cgpa, s.phone);
+        printf("Attendance: %.2f %%\n", s.attendance);
+    }
+    pauseScreen();
+}
+
+void studentViewProgress(const char sid[]) {
+    Student s;
+    if (!getStudentById(sid, &s)) {
+        printf("Record not found.\n");
+    } else {
+        printf("\n----- PROGRESS REPORT -----\n");
+        printf("ID: %s | %s\nBranch: %s | Section: %s\n",
+               s.id, s.name, s.branch, s.section);
+
+        printf("\nMarks:\nC++: %.2f\nDAA: %.2f\nCoding Skills: %.2f\n",
+               s.marks[0], s.marks[1], s.marks[2]);
+
+        printf("\nPercent: %.2f\nGrade: %s\nAttendance: %.2f %%\n",
+               s.percent, s.grade, s.attendance);
+    }
+    pauseScreen();
+}
+
+/* ================= LOGIN ================= */
+
+int adminLogin() {
+    char u[32], p[32];
+    printf("\nUsername: "); readLine(u, sizeof(u));
+    printf("Password: "); readLine(p, sizeof(p));
+
+    return (strcmp(u, "admin") == 0 && strcmp(p, "admin123") == 0);
+}
+
+int staffLogin() {
+    char u[32], p[32];
+    printf("\nStaff Username: "); readLine(u, sizeof(u));
+    printf("Password: "); readLine(p, sizeof(p));
+
+    return (strcmp(u, "staff") == 0 && strcmp(p, "staff123") == 0);
+}
+
+int studentLogin(char outId[]) {
+    char id[20], pass[20];
+    Student s;
+
+    printf("\nStudent ID: "); readLine(id, sizeof(id));
+    printf("Password : "); readLine(pass, sizeof(pass));
+
+    FILE *fp = fopen(STUD_FILE, "rb");
+    if (!fp) return 0;
+
+    while (fread(&s, sizeof(Student), 1, fp) == 1) {
+        if (strcmp(s.id, id) == 0 && strcmp(s.password, pass) == 0) {
+            fclose(fp);
+            strcpy(outId, id);
+            return 1;
+        }
+    }
+    fclose(fp);
+    return 0;
+}
+
+/* ================= MENUS ================= */
+
 void adminMenu() {
-    int ch;
-    while(1){
-        printf("\n1.Add\n2.View\n3.Search\n4.Update\n5.Delete\n6.Show Requests\n7.Approve Add\n8.Approve Update\n9.Approve Delete\n0.Logout\nChoose: ");
-        scanf("%d",&ch);
-        switch(ch){
-            case 1:addStudent();break;
-            case 2:viewStudents();break;
-            case 3:searchStudent();break;
-            case 4:updateStudent();break;
-            case 5:deleteStudent();break;
-            case 6:viewRequests();break;
-            case 7:approveAdd();break;
-            case 8:approveUpdate();break;
-            case 9:approveDelete();break;
-            case 0:return;
-            default:printf("Invalid\n");
-        }
-    }
-}
+    int c;
+    while (1) {
+        printf("\n=== ADMIN MENU ===\n");
+        printf("1. Add Student\n");
+        printf("2. View All Students\n");
+        printf("3. Update Student\n");
+        printf("4. Delete Student\n");
+        printf("5. Search\n");
+        printf("6. Export to CSV\n");
+        printf("0. Logout\nChoose: ");
+        c = readInt();
 
-void staffMenu(char sid[]) {
-    int ch;
-    while(1){
-        printf("\n1.View Students\n2.Search\n3.Request Add\n4.Request Update\n5.Request Delete\n0.Logout\nChoose: ");
-        scanf("%d",&ch);
-        switch(ch){
-            case 1:viewStudents();break;
-            case 2:searchStudent();break;
-            case 3:requestAdd(sid);break;
-            case 4:requestUpdate(sid);break;
-            case 5:requestDelete(sid);break;
-            case 0:return;
-            default:printf("Invalid\n");
-        }
-    }
-}
-
-void studentMenu(char sid[]) {
-    int ch;
-    while(1){
-        printf("\n1.View My Details\n0.Logout\nChoose: ");
-        scanf("%d",&ch);
-        if(ch==1) viewMyDetails(sid);
-        else if(ch==0) return;
-        else printf("Invalid\n");
-    }
-}
-
-// ======================= MAIN ================================
-int main() {
-    int ch; char sid[20], stid[20];
-    while(1){
-        printf("\n1.Admin\n2.Staff\n3.Student\n0.Exit\nChoose: ");
-        scanf("%d",&ch);
-        if(ch==1){ if(adminLogin()) adminMenu(); else printf("Invalid.\n"); }
-        else if(ch==2){ if(staffLogin(sid)) staffMenu(sid); else printf("Invalid.\n"); }
-        else if(ch==3){ if(studentLogin(stid)) studentMenu(stid); else printf("Invalid.\n"); }
-        else if(ch==0){ printf("Bye!\n"); break; }
+        if (c == 1) adminAddStudent();
+        else if (c == 2) adminViewAllStudents();
+        else if (c == 3) adminUpdateStudent();
+        else if (c == 4) adminDeleteStudent();
+        else if (c == 5) searchStudents();
+        else if (c == 6) { autoExportCSV(); printf("Exported.\n"); pauseScreen(); }
+        else if (c == 0) return;
         else printf("Invalid.\n");
     }
+}
+
+void staffMenu() {
+    int c;
+    while (1) {
+        printf("\n=== STAFF MENU ===\n");
+        printf("1. Search Students\n");
+        printf("2. Update Attendance & Marks\n");
+        printf("0. Logout\nChoose: ");
+        c = readInt();
+
+        if (c == 1) searchStudents();
+        else if (c == 2) staffUpdateAttendanceMarks();
+        else if (c == 0) return;
+        else printf("Invalid.\n");
+    }
+}
+
+void studentMenu(const char sid[]) {
+    int c;
+    while (1) {
+        printf("\n=== STUDENT MENU ===\n");
+        printf("1. My Details\n");
+        printf("2. My Progress\n");
+        printf("0. Logout\nChoose: ");
+        c = readInt();
+
+        if (c == 1) studentViewMyDetails(sid);
+        else if (c == 2) studentViewProgress(sid);
+        else if (c == 0) return;
+        else printf("Invalid.\n");
+    }
+}
+
+/* ================= MAIN ================= */
+
+int main() {
+    int ch;
+    char sid[20];
+
+    while (1) {
+        printf("\n===== STUDENT RECORD SYSTEM =====\n");
+        printf("1. Admin Login\n");
+        printf("2. Staff Login\n");
+        printf("3. Student Login\n");
+        printf("0. Exit\nChoose: ");
+        ch = readInt();
+
+        if (ch == 1 && adminLogin()) adminMenu();
+        else if (ch == 2 && staffLogin()) staffMenu();
+        else if (ch == 3 && studentLogin(sid)) studentMenu(sid);
+        else if (ch == 0) break;
+        else printf("Invalid.\n");
+    }
+
     return 0;
 }
